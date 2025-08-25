@@ -38,6 +38,8 @@ def run_train_bpe(
                 Merges are ordered by order of creation.
     """
 
+    progress_callback = kwargs.get("progress_callback")
+
     merges: list[tuple[bytes, bytes]] = []
     vocab: dict[int, bytes] = dict()
     next_free_token = 0
@@ -64,7 +66,12 @@ def run_train_bpe(
         for pair in byte_pairs:
             byte_pair_counter[pair] += count
 
+    iteration = 0
     while len(vocab) < vocab_size:
+
+        iteration += 1
+        if progress_callback and iteration % 1000 == 0:
+            progress_callback(iteration)
 
         # find most common byte pair to merge next
         most_common_pair_count = byte_pair_counter.most_common(1)[0][1]
@@ -82,14 +89,55 @@ def run_train_bpe(
         # merge pre-tokens
         merges.append(most_common)
 
-        pre_token_replacements: list[
-            tuple[
-                tuple[bytes], tuple[bytes]
-            ]
-        ] = []
-        for pre_token, count in pre_token_counts.items():
+        # merge pre-tokens
+        pre_token_replacements = _merge_pretokens(pre_token_counts, most_common, joined_pair, byte_pair_counter)
 
-            # if pre-token contains the sequence (most_common), merge and adjust counts of surrounding tokens
+        # replace pre-tokens that have updates
+        for (replace, replace_with) in pre_token_replacements:
+            pre_token_counts[replace_with] = pre_token_counts.pop(replace)
+
+    return vocab, merges
+
+
+def _merge_pretokens(
+        pre_token_counts: Counter[tuple[bytes]],
+        merge_pair: tuple[bytes, bytes],
+        replace_with: bytes,
+        byte_pair_counter: Counter[tuple[bytes, bytes]]
+) -> list[tuple[tuple[bytes], tuple[bytes]]]:
+    pre_token_replacements: list[
+        tuple[
+            tuple[bytes], tuple[bytes]
+        ]
+    ] = []
+    for pre_token, count in pre_token_counts.items():
+
+        # if pre-token contains the sequence (most_common), merge and adjust counts of surrounding tokens
+        byte_pairs = zip(
+
+            # previous
+            (None,) + pre_token[:-1],
+
+            pre_token[:-1],
+            pre_token[1:],
+
+            # next
+            pre_token[2:] + (None,),
+        )
+        found_match = False
+        for prev, left, right, next in byte_pairs:
+            if (left, right) == merge_pair:
+                found_match = True
+                # update counts with surrounding byte pairs
+                if prev:
+                    byte_pair_counter[(prev, left)] -= count
+                    byte_pair_counter[(prev, replace_with)] += count
+                if next:
+                    byte_pair_counter[(right, next)] -= count
+                    byte_pair_counter[(replace_with, next)] += count
+
+        # OPTIMIZATION: only if match is found, go back and perform token merges
+        if found_match:
             byte_pairs = zip(
 
                 # previous
@@ -101,54 +149,25 @@ def run_train_bpe(
                 # next
                 pre_token[2:] + (None,),
             )
-            found_match = False
+            updated_pre_token: list[bytes] = []
+            prev_token_merged = False
             for prev, left, right, next in byte_pairs:
-                if (left, right) == most_common:
-                    found_match = True
-                    # update counts with surrounding byte pairs
-                    if prev:
-                        byte_pair_counter[(prev, left)] -= count
-                        byte_pair_counter[(prev, joined_pair)] += count
-                    if next:
-                        byte_pair_counter[(right, next)] -= count
-                        byte_pair_counter[(joined_pair, next)] += count
-
-            # OPTIMIZATION: only if match is found, go back and perform token merges
-            if found_match:
-                byte_pairs = zip(
-
-                    # previous
-                    (None,) + pre_token[:-1],
-
-                    pre_token[:-1],
-                    pre_token[1:],
-
-                    # next
-                    pre_token[2:] + (None,),
-                )
-                updated_pre_token: list[bytes] = []
-                prev_token_merged = False
-                for prev, left, right, next in byte_pairs:
-                    if not prev_token_merged and (left, right) == most_common:
-                        updated_pre_token.append(joined_pair)
-                        prev_token_merged = True
+                if not prev_token_merged and (left, right) == merge_pair:
+                    updated_pre_token.append(replace_with)
+                    prev_token_merged = True
+                else:
+                    if prev_token_merged:
+                        prev_token_merged = False
                     else:
-                        if prev_token_merged:
-                            prev_token_merged = False
-                        else:
-                            updated_pre_token.append(left)
+                        updated_pre_token.append(left)
 
-                        # if we are at the end, add the `right` character
-                        if next is None:
-                            updated_pre_token.append(right)
+                    # if we are at the end, add the `right` character
+                    if next is None:
+                        updated_pre_token.append(right)
 
-                pre_token_replacements.append((pre_token, tuple(updated_pre_token))) # type: ignore
+            pre_token_replacements.append((pre_token, tuple(updated_pre_token))) # type: ignore
 
-        # replace pre-tokens that have updates
-        for (replace, replace_with) in pre_token_replacements:
-            pre_token_counts[replace_with] = pre_token_counts.pop(replace)
-
-    return vocab, merges
+    return pre_token_replacements
 
 
 def _pre_tokenize_from_file_byte_range(file_path: str | os.PathLike, boundary: tuple[int, int], split_special_tokens: list[bytes]) -> Counter[tuple[bytes]]:
