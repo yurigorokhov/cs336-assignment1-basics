@@ -58,8 +58,6 @@ def run_train_bpe(
 
     byte_pair_counter: Counter[tuple[bytes, bytes]] = Counter()
     for (pre_token, count) in pre_token_counts.items():
-        if len(pre_token) < 2:
-            continue
 
         # iterate over byte pairs
         byte_pairs = zip(pre_token[:-1], pre_token[1:])
@@ -68,10 +66,7 @@ def run_train_bpe(
 
     while len(vocab) < vocab_size:
 
-        # find most common byte pair
-        if len(byte_pair_counter) == 1:
-            break
-
+        # find most common byte pair to merge next
         most_common_pair_count = byte_pair_counter.most_common(1)[0][1]
         tied_keys = [k for k, v in byte_pair_counter.items() if v == most_common_pair_count]
         most_common = max(tied_keys)
@@ -94,11 +89,6 @@ def run_train_bpe(
         ] = []
         for pre_token, count in pre_token_counts.items():
 
-            if len(pre_token) < 2:
-                continue
-
-            updated_pre_token: list[bytes] = []
-
             # if pre-token contains the sequence (most_common), merge and adjust counts of surrounding tokens
             byte_pairs = zip(
 
@@ -111,9 +101,10 @@ def run_train_bpe(
                 # next
                 pre_token[2:] + (None,),
             )
-            prev_token_merged = False
+            found_match = False
             for prev, left, right, next in byte_pairs:
-                if not prev_token_merged and (left, right) == most_common:
+                if (left, right) == most_common:
+                    found_match = True
                     # update counts with surrounding byte pairs
                     if prev:
                         byte_pair_counter[(prev, left)] -= count
@@ -121,19 +112,36 @@ def run_train_bpe(
                     if next:
                         byte_pair_counter[(right, next)] -= count
                         byte_pair_counter[(joined_pair, next)] += count
-                    updated_pre_token.append(joined_pair)
-                    prev_token_merged = True
-                else:
-                    if prev_token_merged:
-                        prev_token_merged = False
+
+            # OPTIMIZATION: only if match is found, go back and perform token merges
+            if found_match:
+                byte_pairs = zip(
+
+                    # previous
+                    (None,) + pre_token[:-1],
+
+                    pre_token[:-1],
+                    pre_token[1:],
+
+                    # next
+                    pre_token[2:] + (None,),
+                )
+                updated_pre_token: list[bytes] = []
+                prev_token_merged = False
+                for prev, left, right, next in byte_pairs:
+                    if not prev_token_merged and (left, right) == most_common:
+                        updated_pre_token.append(joined_pair)
+                        prev_token_merged = True
                     else:
-                        updated_pre_token.append(left)
+                        if prev_token_merged:
+                            prev_token_merged = False
+                        else:
+                            updated_pre_token.append(left)
 
-                    # if we are at the end, add the `right` character
-                    if next is None:
-                        updated_pre_token.append(right)
+                        # if we are at the end, add the `right` character
+                        if next is None:
+                            updated_pre_token.append(right)
 
-            if tuple(updated_pre_token) != pre_token:
                 pre_token_replacements.append((pre_token, tuple(updated_pre_token))) # type: ignore
 
         # replace pre-tokens that have updates
@@ -155,7 +163,10 @@ def _pre_tokenize_from_file_byte_range(file_path: str | os.PathLike, boundary: t
         for paragraph in re.splititer(special_token_regex, raw_text):
             for m in re.finditer(PRETOKENIZER_PATTERN, paragraph):
                 pre_token: tuple[bytes] = tuple(x.to_bytes() for x in m.group(0).encode("utf-8")) # type: ignore
-                pre_token_counts[pre_token] += 1
+
+                # pre-tokens on len 1 will not yield any byte-pairs
+                if len(pre_token) > 1:
+                    pre_token_counts[pre_token] += 1
     return pre_token_counts
 
 
