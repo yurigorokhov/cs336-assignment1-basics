@@ -38,43 +38,138 @@ def run_train_bpe(
                 Merges are ordered by order of creation.
     """
 
-    vocab: dict[int, bytes] = {i: chr(i).encode("utf-8") for i in range(256)}
-    next_free_token = 256
+    merges: list[tuple[bytes, bytes]] = []
+    vocab: dict[int, bytes] = dict()
+    next_free_token = 0
 
     # assign a token for each special token
-    for s_token in special_tokens:
-        vocab[next_free_token] = s_token.encode("utf-8")
+    special_token_bytes = [s_token.encode("utf-8") for s_token in special_tokens]
+    for s_token in special_token_bytes:
+        vocab[next_free_token] = s_token
         next_free_token += 1
 
-    merges: list[tuple[bytes, bytes]] = []
+    # initialize vocab with 256 possible byte values
+    for i in range(256):
+        vocab[next_free_token] = chr(i).encode('latin-1')
+        next_free_token += 1
+
+    # pre-tokenize file
+    pre_token_counts = _pre_tokenize_from_file(input_path, special_token_bytes)
+
+    byte_pair_counter: Counter[tuple[bytes, bytes]] = Counter()
+    for (pre_token, count) in pre_token_counts.items():
+        if len(pre_token) < 2:
+            continue
+
+        # iterate over byte pairs
+        byte_pairs = zip(pre_token[:-1], pre_token[1:])
+        for pair in byte_pairs:
+            byte_pair_counter[pair] += count
+
+    while len(vocab) < vocab_size:
+
+        # find most common byte pair
+        if len(byte_pair_counter) == 1:
+            break
+
+        most_common_pair_count = byte_pair_counter.most_common(1)[0][1]
+        tied_keys = [k for k, v in byte_pair_counter.items() if v == most_common_pair_count]
+        most_common = max(tied_keys)
+
+        # add new byte-pair to vocab
+        joined_pair = b"".join(most_common)
+        vocab[next_free_token] = joined_pair
+        next_free_token += 1
+
+        # byte pair stops existing after merge, don't count it anymore
+        byte_pair_counter.pop(most_common)
+
+        # merge pre-tokens
+        merges.append(most_common)
+
+        pre_token_replacements: list[
+            tuple[
+                tuple[bytes], tuple[bytes]
+            ]
+        ] = []
+        for pre_token, count in pre_token_counts.items():
+
+            if len(pre_token) < 2:
+                continue
+
+            updated_pre_token: list[bytes] = []
+
+            # if pre-token contains the sequence (most_common), merge and adjust counts of surrounding tokens
+            byte_pairs = zip(
+
+                # previous
+                (None,) + pre_token[:-1],
+
+                pre_token[:-1],
+                pre_token[1:],
+
+                # next
+                pre_token[2:] + (None,),
+            )
+            prev_token_merged = False
+            for prev, left, right, next in byte_pairs:
+                if not prev_token_merged and (left, right) == most_common:
+                    # update counts with surrounding byte pairs
+                    if prev:
+                        byte_pair_counter[(prev, left)] -= count
+                        byte_pair_counter[(prev, joined_pair)] += count
+                    if next:
+                        byte_pair_counter[(right, next)] -= count
+                        byte_pair_counter[(joined_pair, next)] += count
+                    updated_pre_token.append(joined_pair)
+                    prev_token_merged = True
+                else:
+                    if prev_token_merged:
+                        prev_token_merged = False
+                    else:
+                        updated_pre_token.append(left)
+
+                    # if we are at the end, add the `right` character
+                    if next is None:
+                        updated_pre_token.append(right)
+
+            if tuple(updated_pre_token) != pre_token:
+                pre_token_replacements.append((pre_token, tuple(updated_pre_token))) # type: ignore
+
+        # replace pre-tokens that have updates
+        for (replace, replace_with) in pre_token_replacements:
+            pre_token_counts[replace_with] = pre_token_counts.pop(replace)
+
     return vocab, merges
 
 
-def _pre_tokenize_from_file_byte_range(file_path: str | os.PathLike, boundary: tuple[int, int]) -> Counter[bytes]:
+def _pre_tokenize_from_file_byte_range(file_path: str | os.PathLike, boundary: tuple[int, int], split_special_tokens: list[bytes]) -> Counter[tuple[bytes]]:
     start, end = boundary
-    pre_token_counts: Counter[bytes] = Counter()
+    pre_token_counts: Counter[tuple[bytes]] = Counter()
     with open(file_path, "rb") as f:
         f.seek(start)
         raw_text = f.read(end - start).decode("utf-8", errors="ignore")
 
-        # pre-tokenize
-        for m in re.finditer(PRETOKENIZER_PATTERN, raw_text):
-            pre_token = m.group(0).encode("utf-8")
-            pre_token_counts[pre_token.decode("utf-8")] += 1 # type: ignore
+        # pre-tokenize while splitting on special tokens so that we don't accidentally go accross them with the regex
+        special_token_regex = "|".join([re.escape(s.decode("utf-8"), special_only=True) for s in split_special_tokens])
+        for paragraph in re.splititer(special_token_regex, raw_text):
+            for m in re.finditer(PRETOKENIZER_PATTERN, paragraph):
+                pre_token: tuple[bytes] = tuple(x.to_bytes() for x in m.group(0).encode("utf-8")) # type: ignore
+                pre_token_counts[pre_token] += 1
     return pre_token_counts
 
 
-def _pre_tokenize_from_file(file_path: str | os.PathLike, split_special_token: bytes, parallelism: int = DEFAULT_PARALLELISM) -> Counter[bytes]:
+def _pre_tokenize_from_file(file_path: str | os.PathLike, split_special_tokens: list[bytes], parallelism: int = DEFAULT_PARALLELISM) -> Counter[tuple[bytes]]:
 
     # split file boundaries for parallelism
     with open(file_path, "rb") as f:
-        boundaries = _find_chunk_boundaries(f, parallelism, split_special_token)
+        boundaries = _find_chunk_boundaries(f, parallelism, split_special_tokens)
 
     # count pre-tokens in parallel
-    pre_token_counts: Counter[bytes] = Counter()
+    pre_token_counts: Counter[tuple[bytes]] = Counter()
     with multiprocessing.Pool(parallelism) as pool:
         for result in pool.map(
-            functools.partial(_pre_tokenize_from_file_byte_range, file_path),
+            functools.partial(_pre_tokenize_from_file_byte_range, file_path, split_special_tokens=split_special_tokens),
             zip(boundaries[:-1], boundaries[1:])
         ):
             pre_token_counts += result
@@ -84,13 +179,14 @@ def _pre_tokenize_from_file(file_path: str | os.PathLike, split_special_token: b
 def _find_chunk_boundaries(
     file: BinaryIO,
     desired_num_chunks: int,
-    split_special_token: bytes,
+    split_special_tokens: list[bytes],
 ) -> list[int]:
     """
     Chunk the file into parts that can be counted independently.
     May return fewer chunks if the boundaries end up overlapping.
     """
-    assert isinstance(split_special_token, bytes), "Must represent special token as a bytestring"
+    for special_token in split_special_tokens:
+        assert isinstance(special_token, bytes), "Must represent special token as a bytestring"
 
     # Get total file size in bytes
     file.seek(0, os.SEEK_END)
@@ -118,9 +214,14 @@ def _find_chunk_boundaries(
                 break
 
             # Find the special token in the mini chunk
-            found_at = mini_chunk.find(split_special_token)
-            if found_at != -1:
-                chunk_boundaries[bi] = initial_position + found_at
+            found = False
+            for special_token in split_special_tokens:
+                found_at = mini_chunk.find(special_token)
+                if found_at != -1:
+                    chunk_boundaries[bi] = initial_position + found_at
+                    found = True
+                    break
+            if found:
                 break
             initial_position += mini_chunk_size
 
