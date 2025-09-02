@@ -5,8 +5,8 @@ import os
 import regex as re
 import multiprocessing
 from typing import BinaryIO
+from collections.abc import Iterable, Iterator
 
-from tests.common import gpt2_bytes_to_unicode
 
 
 PRETOKENIZER_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -274,3 +274,24 @@ def _find_chunk_boundaries(
 
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
+
+
+class Tokenizer:
+    def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None):
+        self.vocab = vocab
+        self.merges = merges
+        self.special_tokens = special_tokens
+
+    @classmethod
+    def from_file(cls, tokenizer_snapshot: os.PathLike, special_tokens: list[str] | None = None):
+        vocab, merges = load_tokenizer(tokenizer_snapshot)
+        return cls(vocab, merges, special_tokens)
+
+    def encode(self, text: str) -> list[int]:
+        raise NotImplementedError()
+
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
+        raise NotImplementedError()
+
+    def decode(self, ids: list[int]) -> str:
+        raise NotImplementedError()
