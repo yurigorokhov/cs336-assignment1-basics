@@ -8,7 +8,6 @@ from typing import BinaryIO
 from collections.abc import Iterable, Iterator
 
 
-
 PRETOKENIZER_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 DEFAULT_PARALLELISM = multiprocessing.cpu_count()
 
@@ -55,15 +54,14 @@ def run_train_bpe(
 
     # initialize vocab with 256 possible byte values
     for i in range(256):
-        vocab[next_free_token] = chr(i).encode('latin-1')
+        vocab[next_free_token] = chr(i).encode("latin-1")
         next_free_token += 1
 
     # pre-tokenize file
     pre_token_counts = _pre_tokenize_from_file(input_path, special_token_bytes)
 
     byte_pair_counter: Counter[tuple[bytes, bytes]] = Counter()
-    for (pre_token, count) in pre_token_counts.items():
-
+    for pre_token, count in pre_token_counts.items():
         # iterate over byte pairs
         byte_pairs = zip(pre_token[:-1], pre_token[1:])
         for pair in byte_pairs:
@@ -71,7 +69,6 @@ def run_train_bpe(
 
     iteration = 0
     while len(vocab) < vocab_size:
-
         iteration += 1
         if progress_callback and iteration % 1000 == 0:
             progress_callback(iteration)
@@ -96,19 +93,22 @@ def run_train_bpe(
         pre_token_replacements = _merge_pretokens(pre_token_counts, most_common, joined_pair, byte_pair_counter)
 
         # replace pre-tokens that have updates
-        for (replace, replace_with) in pre_token_replacements:
+        for replace, replace_with in pre_token_replacements:
             pre_token_counts[replace_with] = pre_token_counts.pop(replace)
 
     return vocab, merges
 
 
 def save_tokenizer(file_path: os.PathLike, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]]):
-    d = msgpack.packb({
-        "vocab": {k: v for k, v in vocab.items()},
-        "merges": merges,
-    })
+    d = msgpack.packb(
+        {
+            "vocab": {k: v for k, v in vocab.items()},
+            "merges": merges,
+        }
+    )
     with open(file_path, "wb") as fp:
         fp.write(d)
+
 
 def load_tokenizer(file_path: os.PathLike) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
     with open(file_path, "rb") as fp:
@@ -117,27 +117,19 @@ def load_tokenizer(file_path: os.PathLike) -> tuple[dict[int, bytes], list[tuple
 
 
 def _merge_pretokens(
-        pre_token_counts: Counter[tuple[bytes]],
-        merge_pair: tuple[bytes, bytes],
-        replace_with: bytes,
-        byte_pair_counter: Counter[tuple[bytes, bytes]]
+    pre_token_counts: Counter[tuple[bytes]],
+    merge_pair: tuple[bytes, bytes],
+    replace_with: bytes,
+    byte_pair_counter: Counter[tuple[bytes, bytes]],
 ) -> list[tuple[tuple[bytes], tuple[bytes]]]:
-    pre_token_replacements: list[
-        tuple[
-            tuple[bytes], tuple[bytes]
-        ]
-    ] = []
+    pre_token_replacements: list[tuple[tuple[bytes], tuple[bytes]]] = []
     for pre_token, count in pre_token_counts.items():
-
         # if pre-token contains the sequence (most_common), merge and adjust counts of surrounding tokens
         byte_pairs = zip(
-
             # previous
             (None,) + pre_token[:-1],
-
             pre_token[:-1],
             pre_token[1:],
-
             # next
             pre_token[2:] + (None,),
         )
@@ -156,13 +148,10 @@ def _merge_pretokens(
         # OPTIMIZATION: only if match is found, go back and perform token merges
         if found_match:
             byte_pairs = zip(
-
                 # previous
                 (None,) + pre_token[:-1],
-
                 pre_token[:-1],
                 pre_token[1:],
-
                 # next
                 pre_token[2:] + (None,),
             )
@@ -182,12 +171,14 @@ def _merge_pretokens(
                     if next is None:
                         updated_pre_token.append(right)
 
-            pre_token_replacements.append((pre_token, tuple(updated_pre_token))) # type: ignore
+            pre_token_replacements.append((pre_token, tuple(updated_pre_token)))  # type: ignore
 
     return pre_token_replacements
 
 
-def _pre_tokenize_from_file_byte_range(file_path: str | os.PathLike, boundary: tuple[int, int], split_special_tokens: list[bytes]) -> Counter[tuple[bytes]]:
+def _pre_tokenize_from_file_byte_range(
+    file_path: str | os.PathLike, boundary: tuple[int, int], split_special_tokens: list[bytes]
+) -> Counter[tuple[bytes]]:
     start, end = boundary
     pre_token_counts: Counter[tuple[bytes]] = Counter()
     with open(file_path, "rb") as f:
@@ -198,7 +189,7 @@ def _pre_tokenize_from_file_byte_range(file_path: str | os.PathLike, boundary: t
         special_token_regex = "|".join([re.escape(s.decode("utf-8"), special_only=True) for s in split_special_tokens])
         for paragraph in re.splititer(special_token_regex, raw_text):
             for m in re.finditer(PRETOKENIZER_PATTERN, paragraph):
-                pre_token: tuple[bytes] = tuple(x.to_bytes() for x in m.group(0).encode("utf-8")) # type: ignore
+                pre_token: tuple[bytes] = tuple(x.to_bytes() for x in m.group(0).encode("utf-8"))  # type: ignore
 
                 # pre-tokens on len 1 will not yield any byte-pairs
                 if len(pre_token) > 1:
@@ -206,8 +197,9 @@ def _pre_tokenize_from_file_byte_range(file_path: str | os.PathLike, boundary: t
     return pre_token_counts
 
 
-def _pre_tokenize_from_file(file_path: str | os.PathLike, split_special_tokens: list[bytes], parallelism: int = DEFAULT_PARALLELISM) -> Counter[tuple[bytes]]:
-
+def _pre_tokenize_from_file(
+    file_path: str | os.PathLike, split_special_tokens: list[bytes], parallelism: int = DEFAULT_PARALLELISM
+) -> Counter[tuple[bytes]]:
     # split file boundaries for parallelism
     with open(file_path, "rb") as f:
         boundaries = _find_chunk_boundaries(f, parallelism, split_special_tokens)
@@ -217,7 +209,7 @@ def _pre_tokenize_from_file(file_path: str | os.PathLike, split_special_tokens: 
     with multiprocessing.Pool(parallelism) as pool:
         for result in pool.map(
             functools.partial(_pre_tokenize_from_file_byte_range, file_path, split_special_tokens=split_special_tokens),
-            zip(boundaries[:-1], boundaries[1:])
+            zip(boundaries[:-1], boundaries[1:]),
         ):
             pre_token_counts += result
     return pre_token_counts

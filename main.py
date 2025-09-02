@@ -11,6 +11,7 @@ from cs336_basics.tokenizer import run_train_bpe, save_tokenizer
 
 def with_timing(handler_func):
     """Decorator that adds timing to command handlers."""
+
     def wrapper(args):
         start_time = time.time()
         try:
@@ -22,11 +23,13 @@ def with_timing(handler_func):
             elapsed_time = time.time() - start_time
             print(f"Command failed after {elapsed_time:.2f} seconds")
             raise
+
     return wrapper
 
 
 def with_profiling(handler_func):
     """Decorator that adds cProfile profiling to command handlers."""
+
     def wrapper(args):
         profiler = cProfile.Profile()
         profiler.enable()
@@ -41,7 +44,7 @@ def with_profiling(handler_func):
 
             # Print basic stats
             stats = pstats.Stats(profiler)
-            stats.sort_stats('cumulative')
+            stats.sort_stats("cumulative")
             print("\nTop 10 functions by cumulative time:")
             stats.print_stats(10)
 
@@ -49,6 +52,7 @@ def with_profiling(handler_func):
         except Exception:
             profiler.disable()
             raise
+
     return wrapper
 
 
@@ -102,14 +106,12 @@ def handle_train_tokenizer(args) -> int:
 
     progress_callback = None
     if args.verbose:
+
         def progress_callback(iter):
             return print(f"Iteration={iter}")
 
     vocab, merges = run_train_bpe(
-        args.input,
-        vocab_size=args.vocab_size,
-        special_tokens=special_tokens,
-        progress_callback=progress_callback
+        args.input, vocab_size=args.vocab_size, special_tokens=special_tokens, progress_callback=progress_callback
     )
 
     save_tokenizer(args.output, vocab, merges)
