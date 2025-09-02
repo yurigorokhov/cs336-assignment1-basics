@@ -1,9 +1,12 @@
 from collections import Counter
 import functools
+import msgpack
 import os
 import regex as re
 import multiprocessing
 from typing import BinaryIO
+
+from tests.common import gpt2_bytes_to_unicode
 
 
 PRETOKENIZER_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -97,6 +100,15 @@ def run_train_bpe(
             pre_token_counts[replace_with] = pre_token_counts.pop(replace)
 
     return vocab, merges
+
+
+def save_tokenizer(file_path: os.PathLike, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]]):
+    d = msgpack.packb({
+        "vocab": {k: v for k, v in vocab.items()},
+        "merges": merges,
+    })
+    with open(file_path, "wb") as fp:
+        fp.write(d)
 
 
 def _merge_pretokens(
