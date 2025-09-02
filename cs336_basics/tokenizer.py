@@ -110,6 +110,11 @@ def save_tokenizer(file_path: os.PathLike, vocab: dict[int, bytes], merges: list
     with open(file_path, "wb") as fp:
         fp.write(d)
 
+def load_tokenizer(file_path: os.PathLike) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    with open(file_path, "rb") as fp:
+        d = msgpack.load(fp, strict_map_key=False)
+    return d["vocab"], d["merges"]
+
 
 def _merge_pretokens(
         pre_token_counts: Counter[tuple[bytes]],

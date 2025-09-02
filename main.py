@@ -7,19 +7,24 @@ import time
 from cs336_basics.tokenizer import run_train_bpe, save_tokenizer
 
 
+def with_timing(handler_func):
+    """Decorator that adds timing to command handlers."""
+    def wrapper(args):
+        start_time = time.time()
+        try:
+            result = handler_func(args)
+            elapsed_time = time.time() - start_time
+            print(f"Command completed in {elapsed_time:.2f} seconds")
+            return result
+        except Exception:
+            elapsed_time = time.time() - start_time
+            print(f"Command failed after {elapsed_time:.2f} seconds")
+            raise
+    return wrapper
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="CLI tool skeleton")
-    parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose output"
-    )
-    parser.add_argument(
-        "--config", "-c",
-        type=str,
-        help="Path to configuration file"
-    )
-
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Train tokenizer subcommand
@@ -28,7 +33,7 @@ def main() -> int:
     cmd_train.add_argument("--output", "-o", required=True, help="Path to save the trained tokenizer")
     cmd_train.add_argument("--vocab-size", type=int, default=1000, help="Size of the vocabulary (default: 1000)")
     cmd_train.add_argument("--special-tokens", action="append", help="Special tokens (can be specified multiple times)")
-    cmd_train.add_argument("--verbose-progress", action="store_true", help="Show training progress")
+    cmd_train.add_argument("--verbose", "-v", action="store_true", help="Show training progress")
 
     # Example subcommand
     cmd_example = subparsers.add_parser("example", help="Example command")
@@ -42,8 +47,14 @@ def main() -> int:
         return 1
 
     try:
-        if args.command == "train-tokenizer":
-            return handle_train_tokenizer(args)
+        # Command handlers mapping
+        handlers = {
+            "train-tokenizer": with_timing(handle_train_tokenizer),
+        }
+
+        handler = handlers.get(args.command)
+        if handler:
+            return handler(args)
         else:
             print(f"Unknown command: {args.command}", file=sys.stderr)
             return 1
@@ -55,12 +66,10 @@ def main() -> int:
 
 
 def handle_train_tokenizer(args) -> int:
-    start_time = time.time()
-
     special_tokens = args.special_tokens or ["<|endoftext|>"]
 
     progress_callback = None
-    if args.verbose_progress:
+    if args.verbose:
         def progress_callback(iter):
             return print(f"Iteration={iter}")
 
@@ -72,10 +81,7 @@ def handle_train_tokenizer(args) -> int:
     )
 
     save_tokenizer(args.output, vocab, merges)
-
-    elapsed_time = time.time() - start_time
     print(f"Tokenizer saved to {args.output}")
-    print(f"Training completed in {elapsed_time:.2f} seconds")
 
     return 0
 

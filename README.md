@@ -51,5 +51,9 @@ cd ..
 ## Train Tokenizer
 
 ```bash
-uv run cs336 train-tokenizer ./data/TinyStoriesV2-GPT4-valid.txt -o ./scratch/tokenizer_tinystories_10k.msgpack --vocab-size 10000 --special-tokens "<|endoftext|>"
+uv run cs336 train-tokenizer ./data/TinyStoriesV2-GPT4-train.txt -o ./scratch/tokenizer_tinystories_10k.msgpack --vocab-size 10000 --special-tokens "<|endoftext|>" --verbose
+```
+
+```bash
+uv run cs336 train-tokenizer ./data/owt_train.txt -o ./scratch/owt_32k.msgpack --vocab-size 10000 --special-tokens "<|endoftext|>" --verbose
 ```
