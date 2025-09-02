@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
+import cProfile
+import pstats
 import sys
 import time
 
@@ -23,8 +25,36 @@ def with_timing(handler_func):
     return wrapper
 
 
+def with_profiling(handler_func):
+    """Decorator that adds cProfile profiling to command handlers."""
+    def wrapper(args):
+        profiler = cProfile.Profile()
+        profiler.enable()
+        try:
+            result = handler_func(args)
+            profiler.disable()
+
+            # Save profile to file
+            profile_filename = f"profile_{args.command}.prof"
+            profiler.dump_stats(profile_filename)
+            print(f"Profile saved to {profile_filename}")
+
+            # Print basic stats
+            stats = pstats.Stats(profiler)
+            stats.sort_stats('cumulative')
+            print("\nTop 10 functions by cumulative time:")
+            stats.print_stats(10)
+
+            return result
+        except Exception:
+            profiler.disable()
+            raise
+    return wrapper
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="CLI tool skeleton")
+    parser.add_argument("--profile", action="store_true", help="Enable profiling with cProfile")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Train tokenizer subcommand
@@ -35,11 +65,6 @@ def main() -> int:
     cmd_train.add_argument("--special-tokens", action="append", help="Special tokens (can be specified multiple times)")
     cmd_train.add_argument("--verbose", "-v", action="store_true", help="Show training progress")
 
-    # Example subcommand
-    cmd_example = subparsers.add_parser("example", help="Example command")
-    cmd_example.add_argument("input", help="Input parameter")
-    cmd_example.add_argument("--output", "-o", help="Output file")
-
     args = parser.parse_args()
 
     if args.command is None:
@@ -48,8 +73,15 @@ def main() -> int:
 
     try:
         # Command handlers mapping
+        base_handler = handle_train_tokenizer
+
+        # Apply decorators based on flags
+        handler = with_timing(base_handler)
+        if args.profile:
+            handler = with_profiling(handler)
+
         handlers = {
-            "train-tokenizer": with_timing(handle_train_tokenizer),
+            "train-tokenizer": handler,
         }
 
         handler = handlers.get(args.command)
