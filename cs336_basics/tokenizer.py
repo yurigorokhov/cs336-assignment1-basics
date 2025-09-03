@@ -206,6 +206,7 @@ def _pre_tokenize_from_file(
     # split file boundaries for parallelism
     with open(file_path, "rb") as f:
         boundaries = _find_chunk_boundaries(f, parallelism, split_special_tokens)
+    logging.info(f"pre-tokenizing {len(boundaries[:-1])} chunks with {parallelism} processes")
 
     # count pre-tokens in parallel
     pre_token_counts: Counter[tuple[bytes]] = Counter()
