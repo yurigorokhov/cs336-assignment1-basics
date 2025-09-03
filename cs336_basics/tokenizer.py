@@ -1,5 +1,6 @@
 from collections import Counter
 import functools
+import logging
 import msgpack
 import os
 import regex as re
@@ -58,7 +59,9 @@ def run_train_bpe(
         next_free_token += 1
 
     # pre-tokenize file
+    logging.info("starting pre-tokenizing")
     pre_token_counts = _pre_tokenize_from_file(input_path, special_token_bytes)
+    logging.info(f"finished pre-tokenizing, {len(pre_token_counts)} pre-tokens found.")
 
     byte_pair_counter: Counter[tuple[bytes, bytes]] = Counter()
     for pre_token, count in pre_token_counts.items():
@@ -280,10 +283,39 @@ class Tokenizer:
         return cls(vocab, merges, special_tokens)
 
     def encode(self, text: str) -> list[int]:
-        raise NotImplementedError()
+        return list(self.encode_iterable([text]))
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        raise NotImplementedError()
+        special_token_regex = "|".join([re.escape(s.decode("utf-8"), special_only=True) for s in self.special_tokens])
+        for data in iterable:
+            data_bytes = data.decode("utf-8", errors="ignore")
+
+            # TODO: we should output special tokens
+
+            # TODO: process matches as well as text in between!
+            # last_end = 0
+            # for match in re.finditer(special_token_regex, data_bytes):
+            #     # Process text before the special token
+            #     if match.start() > last_end:
+            #         text_chunk = data_bytes[last_end:match.start()]
+            #         process_regular_text(text_chunk)
+
+            #     # Process the special token
+            #     special_token = match.group()
+            #     process_special_token(special_token)
+
+            #     last_end = match.end()
+
+            # # Process any remaining text after the last special token
+            # if last_end < len(data_bytes):
+            #     remaining_text = data_bytes[last_end:]
+            #     process_regular_text(remaining_text)
+
+            for paragraph in re.splititer(special_token_regex, data_bytes):
+                for m in re.finditer(PRETOKENIZER_PATTERN, paragraph):
+                    pre_token: tuple[bytes] = tuple(x.to_bytes() for x in m.group(0).encode("utf-8"))  # type: ignore
+
+                    # TODO: apply iterative merges for each pre-token
 
     def decode(self, ids: list[int]) -> str:
         raise NotImplementedError()

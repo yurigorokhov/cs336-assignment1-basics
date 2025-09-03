@@ -5,6 +5,7 @@ import cProfile
 import pstats
 import sys
 import time
+import logging
 
 from cs336_basics.tokenizer import run_train_bpe, save_tokenizer
 
@@ -57,6 +58,8 @@ def with_profiling(handler_func):
 
 
 def main() -> int:
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
     parser = argparse.ArgumentParser(description="CLI tool skeleton")
     parser.add_argument("--profile", action="store_true", help="Enable profiling with cProfile")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -108,7 +111,7 @@ def handle_train_tokenizer(args) -> int:
     if args.verbose:
 
         def progress_callback(iter):
-            return print(f"Iteration={iter}")
+            logging.info(f"Iteration={iter}")
 
     vocab, merges = run_train_bpe(
         args.input, vocab_size=args.vocab_size, special_tokens=special_tokens, progress_callback=progress_callback
