@@ -42,6 +42,7 @@ def run_train_bpe(
     """
 
     progress_callback = kwargs.get("progress_callback")
+    pretokenizer_num_chunks = kwargs.get("pretokenizer_num_chunks")
 
     merges: list[tuple[bytes, bytes]] = []
     vocab: dict[int, bytes] = dict()
@@ -60,7 +61,7 @@ def run_train_bpe(
 
     # pre-tokenize file
     logging.info("starting pre-tokenizing")
-    pre_token_counts = _pre_tokenize_from_file(input_path, special_token_bytes)
+    pre_token_counts = _pre_tokenize_from_file(input_path, special_token_bytes, num_chunks=pretokenizer_num_chunks)
     logging.info(f"finished pre-tokenizing, {len(pre_token_counts)} pre-tokens found.")
 
     byte_pair_counter: Counter[tuple[bytes, bytes]] = Counter()
@@ -201,11 +202,14 @@ def _pre_tokenize_from_file_byte_range(
 
 
 def _pre_tokenize_from_file(
-    file_path: str | os.PathLike, split_special_tokens: list[bytes], parallelism: int = DEFAULT_PARALLELISM
+    file_path: str | os.PathLike,
+    split_special_tokens: list[bytes],
+    parallelism: int = DEFAULT_PARALLELISM,
+    num_chunks: int | None = None,
 ) -> Counter[tuple[bytes]]:
     # split file boundaries for parallelism
     with open(file_path, "rb") as f:
-        boundaries = _find_chunk_boundaries(f, parallelism, split_special_tokens)
+        boundaries = _find_chunk_boundaries(f, num_chunks or parallelism, split_special_tokens)
     logging.info(f"pre-tokenizing {len(boundaries[:-1])} chunks with {parallelism} processes")
 
     # count pre-tokens in parallel

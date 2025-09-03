@@ -70,6 +70,12 @@ def main() -> int:
     cmd_train.add_argument("--output", "-o", required=True, help="Path to save the trained tokenizer")
     cmd_train.add_argument("--vocab-size", type=int, default=1000, help="Size of the vocabulary (default: 1000)")
     cmd_train.add_argument("--special-tokens", action="append", help="Special tokens (can be specified multiple times)")
+    cmd_train.add_argument(
+        "--pretokenizer-num-chunks",
+        type=int,
+        default=None,
+        help="Number of chunks to pre-tokenize with (default: #cpu)",
+    )
     cmd_train.add_argument("--verbose", "-v", action="store_true", help="Show training progress")
 
     args = parser.parse_args()
@@ -114,7 +120,11 @@ def handle_train_tokenizer(args) -> int:
             logging.info(f"Iteration={iter}")
 
     vocab, merges = run_train_bpe(
-        args.input, vocab_size=args.vocab_size, special_tokens=special_tokens, progress_callback=progress_callback
+        args.input,
+        vocab_size=args.vocab_size,
+        special_tokens=special_tokens,
+        progress_callback=progress_callback,
+        pretokenizer_num_chunks=args.pretokenizer_num_chunks,
     )
 
     save_tokenizer(args.output, vocab, merges)
