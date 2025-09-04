@@ -54,6 +54,7 @@ cs336 = "main:main"
 dev = [
     "ipykernel>=6.30.1",
     "ruff>=0.12.11",
+    "snakeviz>=2.2.2",
 ]
 
 [tool.ruff.lint]
