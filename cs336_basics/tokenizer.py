@@ -286,8 +286,9 @@ def _find_chunk_boundaries(
 class Tokenizer:
     def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None):
         self.vocab = vocab
-        self.merges = merges
-        self.special_tokens = special_tokens
+        self.merges = [tuple(m) for m in merges]
+        self.special_tokens = sorted(special_tokens, key=len, reverse=True) if special_tokens else None
+        self._vocab_reverse_lookup: dict[bytes, int] = {v: k for k, v in vocab.items()}
 
     @classmethod
     def from_file(cls, tokenizer_snapshot: os.PathLike, special_tokens: list[str] | None = None):
@@ -297,37 +298,64 @@ class Tokenizer:
     def encode(self, text: str) -> list[int]:
         return list(self.encode_iterable([text]))
 
+    def _encode_special_token(self, token: str) -> int:
+        key = token.encode("utf-8", errors="replace")
+        return self._vocab_reverse_lookup[key]
+
+    def _encode_regular_text(self, text: str) -> Iterator[int]:
+        for m in re.finditer(PRETOKENIZER_PATTERN, text):
+            pre_token: list[bytes] = list(x.to_bytes() for x in m.group(0).encode("utf-8"))  # type: ignore
+
+            # apply iterative merges
+            for merge_pair in self.merges:
+                # cannot merge this pretoken anymore
+                if len(pre_token) == 1:
+                    break
+
+                updated_pre_token: list[bytes] = []
+                prev_token_merged = False
+                for pair in itertools.pairwise(pre_token):
+                    if not prev_token_merged and pair == merge_pair:
+                        updated_pre_token.append(b"".join(merge_pair))
+                        prev_token_merged = True
+                    else:
+                        if prev_token_merged:
+                            prev_token_merged = False
+                        else:
+                            updated_pre_token.append(pair[0])
+                if not prev_token_merged:
+                    updated_pre_token.append(pair[1])
+
+                pre_token = updated_pre_token
+
+            for elem in pre_token:
+                yield self._vocab_reverse_lookup[elem]
+
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        special_token_regex = "|".join([re.escape(s.decode("utf-8"), special_only=True) for s in self.special_tokens])
+        special_token_regex = (
+            "|".join([re.escape(s, special_only=True) for s in self.special_tokens]) if self.special_tokens else None
+        )
         for data in iterable:
-            data_bytes = data.decode("utf-8", errors="ignore")
+            if special_token_regex:
+                last_end = 0
+                for m in re.finditer(special_token_regex, data):
+                    # Process text before the special token
+                    if m.start() > last_end:
+                        text_chunk = data[last_end : m.start()]
+                        yield from self._encode_regular_text(text_chunk)
 
-            # TODO: we should output special tokens
+                    # Process the special token
+                    special_token = m.group()
+                    yield self._encode_special_token(special_token)
 
-            # TODO: process matches as well as text in between!
-            # last_end = 0
-            # for match in re.finditer(special_token_regex, data_bytes):
-            #     # Process text before the special token
-            #     if match.start() > last_end:
-            #         text_chunk = data_bytes[last_end:match.start()]
-            #         process_regular_text(text_chunk)
+                    last_end = m.end()
 
-            #     # Process the special token
-            #     special_token = match.group()
-            #     process_special_token(special_token)
-
-            #     last_end = match.end()
-
-            # # Process any remaining text after the last special token
-            # if last_end < len(data_bytes):
-            #     remaining_text = data_bytes[last_end:]
-            #     process_regular_text(remaining_text)
-
-            for paragraph in re.splititer(special_token_regex, data_bytes):
-                for m in re.finditer(PRETOKENIZER_PATTERN, paragraph):
-                    pre_token: tuple[bytes] = tuple(x.to_bytes() for x in m.group(0).encode("utf-8"))  # type: ignore
-
-                    # TODO: apply iterative merges for each pre-token
+                # Process any remaining text after the last special token
+                if last_end < len(data):
+                    remaining_text = data[last_end:]
+                    yield from self._encode_regular_text(remaining_text)
+            else:
+                yield from self._encode_regular_text(data)
 
     def decode(self, ids: list[int]) -> str:
-        raise NotImplementedError()
+        return b"".join([self.vocab[i] for i in ids]).decode("utf-8", errors="replace")
