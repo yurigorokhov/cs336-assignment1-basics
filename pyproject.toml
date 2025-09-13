@@ -21,6 +21,7 @@ dependencies = [
     "ty>=0.0.1a16",
     "msgpack>=1.1.1",
     "click>=8.2.1",
+    "array-record>=0.8.1",
 ]
 
 [build-system]

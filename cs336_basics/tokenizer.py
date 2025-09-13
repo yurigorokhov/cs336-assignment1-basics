@@ -2,12 +2,15 @@ from collections import Counter
 import functools
 import itertools
 import logging
+from pathlib import Path
 import msgpack
 import os
+import numpy as np
 import regex as re
 import multiprocessing
 from typing import BinaryIO
 from collections.abc import Iterable, Iterator
+from array_record.python.array_record_module import ArrayRecordWriter
 
 
 PRETOKENIZER_PATTERN = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -283,6 +286,11 @@ def _find_chunk_boundaries(
     return sorted(set(chunk_boundaries))
 
 
+def dataset_filename(prefix: str, shard_index: int, n_shards: int, extension="arrayrecord") -> str:
+    n_digits = len(str(n_shards))
+    return f"{prefix}-{shard_index:0{n_digits}d}-of-{n_shards:0{n_digits}d}.{extension}"
+
+
 class Tokenizer:
     def __init__(self, vocab: dict[int, bytes], merges: list[tuple[bytes, bytes]], special_tokens: list[str] | None):
         self.vocab = vocab
@@ -359,3 +367,45 @@ class Tokenizer:
 
     def decode(self, ids: list[int]) -> str:
         return b"".join([self.vocab[i] for i in ids]).decode("utf-8", errors="replace")
+
+    def tokenize_dataset_to_array_record(
+        self, dataset_path: os.PathLike, output_directory: os.PathLike, chunks: int = DEFAULT_PARALLELISM
+    ):
+        output_directory = Path(output_directory)
+        output_directory.mkdir(parents=True, exist_ok=True)
+        assert output_directory.is_dir(), "output_directory should be a dir"
+
+        # read input file
+        with open(dataset_path, "rb") as f:
+            if self.special_tokens:
+                special_tokens = [x.encode() for x in self.special_tokens]
+            else:
+                special_tokens = []
+            boundaries = _find_chunk_boundaries(f, max(chunks, DEFAULT_PARALLELISM), special_tokens)
+
+        with multiprocessing.Pool(DEFAULT_PARALLELISM) as pool:
+            args_list = [
+                (
+                    dataset_path,
+                    output_directory / dataset_filename("shard", index + 1, len(boundaries) - 1),
+                    boundary,
+                )
+                for index, boundary in enumerate(zip(boundaries[:-1], boundaries[1:]))
+            ]
+            pool.starmap(self._encode_file_byte_range, args_list)
+
+    def _encode_file_byte_range(self, file_path: str | os.PathLike, output_file: Path, boundary: tuple[int, int]):
+        logging.info(f"Tokenizing {output_file}")
+        start, end = boundary
+        with open(file_path, "rb") as f:
+            f.seek(start)
+            raw_text = f.read(end - start).decode("utf-8", errors="ignore")
+
+            tokens = np.array(self.encode(raw_text), np.uint16)
+
+            try:
+                writer = ArrayRecordWriter(str(output_file), "group_size:1")
+                writer.write(tokens.tobytes())
+            finally:
+                if writer:
+                    writer.close()

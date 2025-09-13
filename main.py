@@ -7,7 +7,7 @@ import sys
 import time
 import logging
 
-from cs336_basics.tokenizer import run_train_bpe, save_tokenizer
+from cs336_basics.tokenizer import run_train_bpe, save_tokenizer, load_tokenizer, Tokenizer
 
 
 def with_timing(handler_func):
@@ -62,6 +62,7 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description="CLI tool skeleton")
     parser.add_argument("--profile", action="store_true", help="Enable profiling with cProfile")
+    parser.add_argument("--verbose", action="store_true", help="Verbose")
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
 
     # Train tokenizer subcommand
@@ -78,6 +79,16 @@ def main() -> int:
     )
     cmd_train.add_argument("--verbose", "-v", action="store_true", help="Show training progress")
 
+    # Tokenize dataset subcommand
+    cmd_tokenize = subparsers.add_parser("tokenize-dataset", help="Tokenize a dataset using a trained tokenizer")
+    cmd_tokenize.add_argument("input", help="Path to input text file to tokenize")
+    cmd_tokenize.add_argument("--tokenizer", "-t", required=True, help="Path to tokenizer msgpack file")
+    cmd_tokenize.add_argument("--output", "-o", required=True, help="Path to save tokenized output")
+    cmd_tokenize.add_argument(
+        "--special-tokens", action="append", help="Special tokens (can be specified multiple times)"
+    )
+    cmd_tokenize.add_argument("--chunks", type=int, default=1000, help="Number of chunks to split the dataset into")
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -86,15 +97,22 @@ def main() -> int:
 
     try:
         # Command handlers mapping
-        base_handler = handle_train_tokenizer
+        if args.command == "train-tokenizer":
+            base_handler = handle_train_tokenizer
+        elif args.command == "tokenize-dataset":
+            base_handler = handle_tokenize_dataset
+        else:
+            base_handler = None
 
         # Apply decorators based on flags
-        handler = with_timing(base_handler)
-        if args.profile:
-            handler = with_profiling(handler)
+        if base_handler:
+            handler = with_timing(base_handler)
+            if args.profile:
+                handler = with_profiling(handler)
 
         handlers = {
-            "train-tokenizer": handler,
+            "train-tokenizer": handler if args.command == "train-tokenizer" else None,
+            "tokenize-dataset": handler if args.command == "tokenize-dataset" else None,
         }
 
         handler = handlers.get(args.command)
@@ -130,6 +148,15 @@ def handle_train_tokenizer(args) -> int:
     save_tokenizer(args.output, vocab, merges)
     print(f"Tokenizer saved to {args.output}")
 
+    return 0
+
+
+def handle_tokenize_dataset(args) -> int:
+    vocab, merges = load_tokenizer(args.tokenizer)
+    special_tokens = args.special_tokens or ["<|endoftext|>"]
+    tokenizer = Tokenizer(vocab, merges, special_tokens)
+    tokenizer.tokenize_dataset_to_array_record(args.input, args.output, args.chunks)
+    print(f"Tokenized dataset saved to {args.output}")
     return 0
 
 
