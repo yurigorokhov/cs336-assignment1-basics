@@ -1,6 +1,5 @@
-import math
 import torch
-from jaxtyping import Float, Int64
+from jaxtyping import Float
 
 
 class RmsNorm(torch.nn.Module):
