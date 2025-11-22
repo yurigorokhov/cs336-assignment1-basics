@@ -71,3 +71,11 @@ def instantiate(data: Any) -> None:
         return obj
 
     return dfs(data)
+
+
+def set_nested(obj, key, value):
+    parts = key.split(".")
+    d = obj
+    for p in parts[:-1]:
+        d = d[p]
+    d[parts[-1]] = value

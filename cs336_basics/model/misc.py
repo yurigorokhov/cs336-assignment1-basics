@@ -49,10 +49,10 @@ def gradient_clipping(
         total_norm_squared += torch.pow(param.grad.data, 2).sum()
     gradient_norm = torch.sqrt(total_norm_squared)
     if max_l2_norm is None:
-        return gradient_norm
+        return gradient_norm.item()
     clip_coef = max_l2_norm / (gradient_norm + eps)
     if clip_coef < 1:
         for param in parameters:
             if param.grad is not None:
                 param.grad.data *= clip_coef
-    return gradient_norm
+    return min(gradient_norm.item(), max_l2_norm)

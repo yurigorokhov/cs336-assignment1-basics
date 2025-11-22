@@ -1,5 +1,6 @@
 gradient_clip_max_l2_norm: 1.0
 iterations: 5000
+loss_averaging_last_k_batches: 100
 checkpoint_dir: ./scratch/checkpoints/tiny_stories_10k/
 checkpoint_interval: 500
 

@@ -2,6 +2,7 @@
 
 import argparse
 import cProfile
+import os
 import pstats
 import sys
 import time
@@ -10,7 +11,7 @@ import yaml
 
 from cs336_basics.tokenizer import run_train_bpe, save_tokenizer, load_tokenizer, Tokenizer
 from cs336_basics.train import training_loop
-from cs336_basics.config import instantiate
+from cs336_basics.config import instantiate, set_nested
 
 
 def with_timing(handler_func):
@@ -61,7 +62,9 @@ def with_profiling(handler_func):
 
 
 def main() -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
 
     parser = argparse.ArgumentParser(description="CLI tool skeleton")
     parser.add_argument("--profile", action="store_true", help="Enable profiling with cProfile")
@@ -71,9 +74,15 @@ def main() -> int:
     # Train tokenizer subcommand
     cmd_train = subparsers.add_parser("train-tokenizer", help="Train a BPE tokenizer")
     cmd_train.add_argument("input", help="Path to training corpus file")
-    cmd_train.add_argument("--output", "-o", required=True, help="Path to save the trained tokenizer")
-    cmd_train.add_argument("--vocab-size", type=int, default=1000, help="Size of the vocabulary (default: 1000)")
-    cmd_train.add_argument("--special-tokens", action="append", help="Special tokens (can be specified multiple times)")
+    cmd_train.add_argument(
+        "--output", "-o", required=True, help="Path to save the trained tokenizer"
+    )
+    cmd_train.add_argument(
+        "--vocab-size", type=int, default=1000, help="Size of the vocabulary (default: 1000)"
+    )
+    cmd_train.add_argument(
+        "--special-tokens", action="append", help="Special tokens (can be specified multiple times)"
+    )
     cmd_train.add_argument(
         "--pretokenizer-num-chunks",
         type=int,
@@ -83,22 +92,37 @@ def main() -> int:
     cmd_train.add_argument("--verbose", "-v", action="store_true", help="Show training progress")
 
     # Tokenize dataset subcommand
-    cmd_tokenize = subparsers.add_parser("tokenize-dataset", help="Tokenize a dataset using a trained tokenizer")
+    cmd_tokenize = subparsers.add_parser(
+        "tokenize-dataset", help="Tokenize a dataset using a trained tokenizer"
+    )
     cmd_tokenize.add_argument("input", help="Path to input text file to tokenize")
-    cmd_tokenize.add_argument("--tokenizer", "-t", required=True, help="Path to tokenizer msgpack file")
+    cmd_tokenize.add_argument(
+        "--tokenizer", "-t", required=True, help="Path to tokenizer msgpack file"
+    )
     cmd_tokenize.add_argument("--output", "-o", required=True, help="Path to save tokenized output")
     cmd_tokenize.add_argument(
         "--special-tokens", action="append", help="Special tokens (can be specified multiple times)"
     )
-    cmd_tokenize.add_argument("--chunks", type=int, default=1000, help="Number of chunks to split the dataset into")
+    cmd_tokenize.add_argument(
+        "--chunks", type=int, default=1000, help="Number of chunks to split the dataset into"
+    )
 
     # Train model subcommand
     cmd_train = subparsers.add_parser("train", help="Train a model using a config file")
     cmd_train.add_argument("config_file", help="Path to YAML config file")
-    cmd_train.add_argument("--entity", default="yurigorokhov-personal", help="WandB entity (team name)")
-    cmd_train.add_argument("--project", default="transformer-assignment-1", help="WandB project name")
+    cmd_train.add_argument(
+        "--entity", default="yurigorokhov-personal", help="WandB entity (team name)"
+    )
+    cmd_train.add_argument(
+        "--project", default="transformer-assignment-1", help="WandB project name"
+    )
     cmd_train.add_argument("--offline", action="store_true", help="Run WandB in offline mode")
-    cmd_train.add_argument("--disable-wandb", action="store_true", help="Disable WandB logging entirely")
+    cmd_train.add_argument(
+        "--disable-wandb", action="store_true", help="Disable WandB logging entirely"
+    )
+    cmd_train.add_argument(
+        "--random-checkpoint-dir", action="store_true", help="Run WandB in offline mode"
+    )
 
     args = parser.parse_args()
 
@@ -189,6 +213,16 @@ def handle_train(args) -> int:
         config=config,
         mode=wandb_mode,
     )
+
+    # apply wandb parameter overrides
+    for k, v in wandb.config.items():
+        set_nested(config, k, v)
+
+    # Update checkpoint directory to include wandb run info for tracking
+    # This ensures each sweep run has its own checkpoint directory
+    if wandb_mode != "disabled" and config.get("checkpoint_dir") is None:
+        base_checkpoint_dir = "./scratch/checkpoints/"
+        config["checkpoint_dir"] = os.path.join(base_checkpoint_dir, f"{run.id}_{run.name}")
 
     # Run training
     training_loop(**instantiate(config), run=run)

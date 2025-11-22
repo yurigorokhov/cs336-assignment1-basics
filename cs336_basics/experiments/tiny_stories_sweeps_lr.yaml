@@ -1,0 +1,27 @@
+command:
+  - uv
+  - run
+  - cs336
+  - train
+  - cs336_basics/experiments/tiny_stories.yaml
+method: grid
+metric:
+  name: val/perplexity
+  goal: minimize
+parameters:
+  optimizer.lr:
+    values: [0.0005, 0.001, 0.0025, 0.005]
+  optimizer.betas:
+    values: [[0.9,0.999], [0.9,0.95]]
+  optimizer.weight_decay:
+    value: 0.01
+  optimizer.eps:
+    value: 1e-8
+  gradient_clip_max_l2_norm:
+    value: 1.0
+  data_loader.seed:
+    values: [42, 123]
+
+  # this automatically creates a checkpoint dir based on the wandb run_id
+  checkpoint_dir:
+    value: null
