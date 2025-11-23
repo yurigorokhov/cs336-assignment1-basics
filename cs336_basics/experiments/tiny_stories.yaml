@@ -35,7 +35,7 @@ optimizer:
 learning_rate_schedule:
   __target__: cs336_basics.learning_rate_schedule.CosineLearningRate
   max_learning_rate: 0.005
-  min_learning_rate: 0.001
+  min_learning_rate: 0.0005
   warmup_iters: 500
   cosine_cycle_iters: $$iterations
 

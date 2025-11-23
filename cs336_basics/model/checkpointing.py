@@ -28,7 +28,7 @@ def save_checkpoint(
 def load_checkpoint(
     src: str | os.PathLike | BinaryIO | IO[bytes],
     model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
+    optimizer: torch.optim.Optimizer | None = None,
 ):
     """
     Given a serialized checkpoint (path or file-like object), restore the
@@ -44,6 +44,13 @@ def load_checkpoint(
         int: the previously-serialized number of iterations.
     """
     d = torch.load(src)
-    model.load_state_dict(d["model"])
-    optimizer.load_state_dict(d["optimizer"])
+
+    # Strip _orig_mod. prefix if present (from torch.compile)
+    state_dict = d["model"]
+    if any(k.startswith("_orig_mod.") for k in state_dict.keys()):
+        state_dict = {k.replace("_orig_mod.", ""): v for k, v in state_dict.items()}
+
+    model.load_state_dict(state_dict)
+    if optimizer is not None:
+        optimizer.load_state_dict(d["optimizer"])
     return d["iteration"]

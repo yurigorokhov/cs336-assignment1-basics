@@ -57,3 +57,22 @@ uv run cs336 train-tokenizer ./data/TinyStoriesV2-GPT4-train.txt -o ./scratch/to
 ```bash
 uv run cs336 train-tokenizer ./data/owt_train.txt -o ./scratch/owt_32k.msgpack --vocab-size 32000 --special-tokens "<|endoftext|>" --verbose --pretokenizer-num-chunks 64
 ```
+
+## Tokenized dataset info
+
+```bash
+uv run main.py dataset-info ./scratch/datasets/TinyStories-train-10k --tokenizer ./scratch/models/tokenizer_tinystories_10k.msgpack
+```
+
+## Run sweeps
+
+```bash
+wandb sweep cs336_basics/experiments/tiny_stories_sweeps_lr.yaml -p transformer-assignment-1
+wandb agent yurigorokhov-personal/transformer-assignment-1/SWEEP_ID
+```
+
+## Chat
+
+```bash
+uv run main.py chat --checkpoint ./scratch/checkpoints/checkpoint_003500 ./cs336_basics/experiments/tiny_stories.yaml --prompt 'Once upon a time in '
+```

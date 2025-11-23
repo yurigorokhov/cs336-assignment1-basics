@@ -12,6 +12,7 @@ import yaml
 from cs336_basics.tokenizer import run_train_bpe, save_tokenizer, load_tokenizer, Tokenizer
 from cs336_basics.train import training_loop
 from cs336_basics.config import instantiate, set_nested
+from cs336_basics.generate import LLMServing
 
 
 def with_timing(handler_func):
@@ -124,6 +125,33 @@ def main() -> int:
         "--random-checkpoint-dir", action="store_true", help="Run WandB in offline mode"
     )
 
+    # Chat subcommand
+    cmd_chat = subparsers.add_parser("chat", help="Interactive chat with a trained model")
+    cmd_chat.add_argument("config_file", help="Path to YAML config file")
+    cmd_chat.add_argument("--checkpoint", "-c", required=True, help="Path to model checkpoint")
+    cmd_chat.add_argument(
+        "--prompt",
+        "-p",
+        default="Once upon a time, in a warm and sunny place",
+        help="Initial prompt for generation",
+    )
+    cmd_chat.add_argument(
+        "--max-tokens", type=int, default=256, help="Maximum tokens to generate (default: 256)"
+    )
+    cmd_chat.add_argument(
+        "--temperature", type=float, default=0.2, help="Sampling temperature (default: 0.2)"
+    )
+    cmd_chat.add_argument(
+        "--top-p", type=float, default=0.8, help="Top-p nucleus sampling threshold (default: 0.8)"
+    )
+
+    # Dataset info subcommand
+    cmd_dataset_info = subparsers.add_parser("dataset-info", help="Show statistics about a tokenized dataset")
+    cmd_dataset_info.add_argument("dataset_path", help="Path to dataset directory containing ArrayRecord files")
+    cmd_dataset_info.add_argument(
+        "--tokenizer", "-t", help="Path to tokenizer file (optional, for document counting)"
+    )
+
     args = parser.parse_args()
 
     if args.command is None:
@@ -138,6 +166,10 @@ def main() -> int:
             base_handler = handle_tokenize_dataset
         elif args.command == "train":
             base_handler = handle_train
+        elif args.command == "chat":
+            base_handler = handle_chat
+        elif args.command == "dataset-info":
+            base_handler = handle_dataset_info
         else:
             base_handler = None
 
@@ -151,6 +183,8 @@ def main() -> int:
             "train-tokenizer": handler if args.command == "train-tokenizer" else None,
             "tokenize-dataset": handler if args.command == "tokenize-dataset" else None,
             "train": handler if args.command == "train" else None,
+            "chat": handler if args.command == "chat" else None,
+            "dataset-info": handler if args.command == "dataset-info" else None,
         }
 
         handler = handlers.get(args.command)
@@ -228,6 +262,99 @@ def handle_train(args) -> int:
     training_loop(**instantiate(config), run=run)
 
     print("Training completed!")
+    return 0
+
+
+def handle_chat(args) -> int:
+    # Load config (only tokenizer and model sections)
+    with open(args.config_file) as file:
+        config = {k: v for k, v in yaml.safe_load(file).items() if k in ["tokenizer", "model"]}
+
+    # Instantiate model and tokenizer
+    entities = instantiate(config)
+
+    # Initialize LLM serving
+    generator = LLMServing(
+        entities["model"],
+        entities["tokenizer"],
+        checkpoint=args.checkpoint,
+    )
+
+    # Generate text
+    generation_kwargs = dict(
+        max_tokens=args.max_tokens,
+        temperature=args.temperature,
+        top_p=args.top_p,
+    )
+
+    for chunk in generator.generate(args.prompt, **generation_kwargs):
+        print(chunk, end="", flush=True)
+
+    print()
+    return 0
+
+
+def handle_dataset_info(args) -> int:
+    from glob import glob
+    import grain.python as grain
+    import numpy as np
+
+    # Find all ArrayRecord files
+    pattern = os.path.join(args.dataset_path, "*.arrayrecord")
+    files = sorted(glob(pattern))
+
+    if not files:
+        print(f"No ArrayRecord files found in {args.dataset_path}")
+        return 1
+
+    print(f"Dataset: {args.dataset_path}")
+    print(f"Number of shards: {len(files)}")
+    print()
+
+    # Load dataset
+    ds = grain.MapDataset.source(grain.ArrayRecordDataSource(files))
+
+    # Count tokens per shard
+    total_tokens = 0
+    shard_tokens = []
+
+    for elem in ds:
+        tokens = np.frombuffer(elem, dtype=np.uint16)
+        num_tokens = len(tokens)
+        shard_tokens.append(num_tokens)
+        total_tokens += num_tokens
+
+    print(f"Total tokens: {total_tokens:,}")
+    print(f"Average tokens per shard: {total_tokens / len(files):,.0f}")
+    print(f"Min tokens in a shard: {min(shard_tokens):,}")
+    print(f"Max tokens in a shard: {max(shard_tokens):,}")
+
+    # Count documents if tokenizer provided
+    if args.tokenizer:
+        vocab, _ = load_tokenizer(args.tokenizer)
+
+        # Find <endoftext> token ID
+        endoftext_id = None
+        for token_id, token_bytes in vocab.items():
+            if token_bytes.decode("utf-8", errors="replace") == "<|endoftext|>":
+                endoftext_id = token_id
+                break
+
+        if endoftext_id is not None:
+            total_docs = 0
+            for elem in ds:
+                tokens = np.frombuffer(elem, dtype=np.uint16)
+                doc_count = np.sum(tokens == endoftext_id)
+                total_docs += doc_count
+
+            print()
+            print(f"Number of <|endoftext|> tokens: {total_docs:,}")
+            if total_docs > 0:
+                print(f"Average tokens per document: {total_tokens / total_docs:,.1f}")
+        else:
+            print()
+            print("Warning: Could not find <|endoftext|> token in vocabulary")
+
     return 0
 
 

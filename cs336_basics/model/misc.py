@@ -5,13 +5,19 @@ from torch import Tensor
 from jaxtyping import Float
 
 
-def softmax(x: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
+def softmax(
+    x: Float[Tensor, " ..."], dim: int, temperature: float | None = None
+) -> Float[Tensor, " ..."]:
     # subtract max for numerical stability
     x = torch.subtract(x, torch.max(x, dim=dim, keepdim=True).values)
 
     # softmax
-    exp = torch.exp(x)
-    return torch.div(exp, torch.sum(exp, dim=dim, keepdim=True))
+    if temperature is not None:
+        exp = torch.exp(x / temperature + 1e-8)
+        return torch.div(exp, torch.sum(exp, dim=dim, keepdim=True))
+    else:
+        exp = torch.exp(x)
+        return torch.div(exp, torch.sum(exp, dim=dim, keepdim=True))
 
 
 def scaled_dot_product_attention(

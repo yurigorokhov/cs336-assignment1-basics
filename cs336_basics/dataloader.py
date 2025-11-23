@@ -3,7 +3,6 @@ import grain.python as grain
 import glob
 
 import numpy as np
-import torch
 
 
 class ToTrainingExamples(grain.experimental.FlatMapTransform):
@@ -19,7 +18,6 @@ class ToTrainingExamples(grain.experimental.FlatMapTransform):
         # valid_ranges
         valid_ranges = []
         for i in range(0, len(tokens) - self.context_length):
-
             # adjust starting positions based on last token so that we always have context_length tokens
             last_target = max(i + self.context_length + 1, len(tokens))
             first_target = last_target - self.context_length
@@ -27,22 +25,28 @@ class ToTrainingExamples(grain.experimental.FlatMapTransform):
             first_input = first_target - 1
             valid_ranges.append((first_input, last_input, first_target, last_target))
 
-         # Example: randomly shuffle or sample
+        # Example: randomly shuffle or sample
         indices = np.arange(len(valid_ranges))
         if self.samples_per_document is not None:
             hash_obj = hashlib.sha256(elem)
-            seed = int.from_bytes(hash_obj.digest()[:4], 'little')
+            seed = int.from_bytes(hash_obj.digest()[:4], "little")
             rng = np.random.default_rng(seed)
             rng.shuffle(indices)
-            indices = indices[:self.samples_per_document]
+            indices = indices[: self.samples_per_document]
 
         for idx in indices:
             a, b, c, d = valid_ranges[idx]
             yield (tokens[a:b], tokens[c:d])
 
 
-def get_data_loader_lazy(dataset_path, sequence_length: int = 1024, samples_per_file: int = 1000, batch_size: int = 1, num_epochs: int = 1, seed: int = 43):
-
+def get_data_loader_lazy(
+    dataset_path,
+    sequence_length: int = 1024,
+    samples_per_file: int = 1000,
+    batch_size: int = 1,
+    num_epochs: int = 1,
+    seed: int = 43,
+):
     source = grain.ArrayRecordDataSource(glob.glob(dataset_path))
 
     index_sampler = grain.IndexSampler(
@@ -62,4 +66,5 @@ def get_data_loader_lazy(dataset_path, sequence_length: int = 1024, samples_per_
             sampler=index_sampler,
             worker_count=1,
         )
+
     return _get_data_loader
