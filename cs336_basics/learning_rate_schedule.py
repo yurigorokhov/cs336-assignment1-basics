@@ -42,12 +42,26 @@ def cosine_schedule(
 @dataclass
 class CosineLearningRate:
     max_learning_rate: float
-    min_learning_rate: float
     warmup_iters: int
     cosine_cycle_iters: int
+    min_learning_rate: float | None = None
+    min_learning_rate_ratio: float | None = None
+
+    def __post_init__(self):
+        if self.min_learning_rate is None:
+            if self.min_learning_rate_ratio is None:
+                raise ValueError("Either min_learning_rate or min_learning_rate_ratio must be set")
+            else:
+                self.min_learning_rate = self.max_learning_rate * self.min_learning_rate_ratio
 
     def update_lr(self, iteration: int, optimizer: torch.optim.Optimizer) -> float:
-        lr = cosine_schedule(iteration, self.max_learning_rate, self.min_learning_rate, self.warmup_iters, self.cosine_cycle_iters)
+        lr = cosine_schedule(
+            iteration,
+            self.max_learning_rate,
+            self.min_learning_rate,
+            self.warmup_iters,
+            self.cosine_cycle_iters,
+        )
         for group in optimizer.param_groups:
-            group['lr'] = lr
+            group["lr"] = lr
         return lr

@@ -1,5 +1,5 @@
 gradient_clip_max_l2_norm: 1.0
-iterations: 5000
+iterations: 3000
 loss_averaging_last_k_batches: 100
 checkpoint_dir: ./scratch/checkpoints/tiny_stories_10k/
 checkpoint_interval: 500
@@ -35,7 +35,7 @@ optimizer:
 learning_rate_schedule:
   __target__: cs336_basics.learning_rate_schedule.CosineLearningRate
   max_learning_rate: 0.005
-  min_learning_rate: 0.0005
+  min_learning_rate_ratio: 0.1
   warmup_iters: 500
   cosine_cycle_iters: $$iterations
 
@@ -43,8 +43,8 @@ data_loader:
   __target__: cs336_basics.dataloader.get_data_loader_lazy
   dataset_path: "./scratch/datasets/TinyStories-train-10k/*.arrayrecord"
   sequence_length: $$model.context_length
-  samples_per_file: 2048
-  batch_size: 32
+  samples_per_file: 4096
+  batch_size: 128
   num_epochs: 1
   seed: 43
 
@@ -53,6 +53,6 @@ validation_data_loader:
   dataset_path: "./scratch/datasets/TinyStories-valid-10k/*.arrayrecord"
   sequence_length: $$model.context_length
   samples_per_file: 2048
-  batch_size: 32
+  batch_size: 128
   num_epochs: 1
   seed: 43

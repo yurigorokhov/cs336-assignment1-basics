@@ -18,11 +18,10 @@ class ToTrainingExamples(grain.experimental.FlatMapTransform):
         # valid_ranges
         valid_ranges = []
         for i in range(0, len(tokens) - self.context_length):
-            # adjust starting positions based on last token so that we always have context_length tokens
-            last_target = max(i + self.context_length + 1, len(tokens))
-            first_target = last_target - self.context_length
-            last_input = last_target - 1
-            first_input = first_target - 1
+            first_input = i
+            last_input = i + self.context_length
+            first_target = i + 1
+            last_target = i + self.context_length + 1
             valid_ranges.append((first_input, last_input, first_target, last_target))
 
         # Example: randomly shuffle or sample

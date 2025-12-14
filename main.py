@@ -139,17 +139,41 @@ def main() -> int:
         "--max-tokens", type=int, default=256, help="Maximum tokens to generate (default: 256)"
     )
     cmd_chat.add_argument(
-        "--temperature", type=float, default=0.2, help="Sampling temperature (default: 0.2)"
+        "--temperature", type=float, default=None, help="Sampling temperature (default: None)"
     )
     cmd_chat.add_argument(
-        "--top-p", type=float, default=0.8, help="Top-p nucleus sampling threshold (default: 0.8)"
+        "--top-p", type=float, default=None, help="Top-p nucleus sampling threshold (default: None)"
     )
 
     # Dataset info subcommand
-    cmd_dataset_info = subparsers.add_parser("dataset-info", help="Show statistics about a tokenized dataset")
-    cmd_dataset_info.add_argument("dataset_path", help="Path to dataset directory containing ArrayRecord files")
+    cmd_dataset_info = subparsers.add_parser(
+        "dataset-info", help="Show statistics about a tokenized dataset"
+    )
+    cmd_dataset_info.add_argument(
+        "dataset_path", help="Path to dataset directory containing ArrayRecord files"
+    )
     cmd_dataset_info.add_argument(
         "--tokenizer", "-t", help="Path to tokenizer file (optional, for document counting)"
+    )
+
+    # Validate dataloader subcommand
+    cmd_validate = subparsers.add_parser(
+        "validate-dataloader",
+        help="Validate data loader configuration by inspecting training examples",
+    )
+    cmd_validate.add_argument("config_file", help="Path to YAML config file")
+    cmd_validate.add_argument(
+        "--loader",
+        type=str,
+        default="data_loader",
+        choices=["data_loader", "validation_data_loader"],
+        help="Which data loader to validate (default: data_loader)",
+    )
+    cmd_validate.add_argument(
+        "--show-examples",
+        type=int,
+        default=0,
+        help="Number of examples to show per batch (default: 0)",
     )
 
     args = parser.parse_args()
@@ -170,6 +194,8 @@ def main() -> int:
             base_handler = handle_chat
         elif args.command == "dataset-info":
             base_handler = handle_dataset_info
+        elif args.command == "validate-dataloader":
+            base_handler = handle_validate_dataloader
         else:
             base_handler = None
 
@@ -185,6 +211,7 @@ def main() -> int:
             "train": handler if args.command == "train" else None,
             "chat": handler if args.command == "chat" else None,
             "dataset-info": handler if args.command == "dataset-info" else None,
+            "validate-dataloader": handler if args.command == "validate-dataloader" else None,
         }
 
         handler = handlers.get(args.command)
@@ -354,6 +381,135 @@ def handle_dataset_info(args) -> int:
         else:
             print()
             print("Warning: Could not find <|endoftext|> token in vocabulary")
+
+    return 0
+
+
+def handle_validate_dataloader(args) -> int:
+    import numpy as np
+
+    # Load config
+    with open(args.config_file) as file:
+        config = yaml.safe_load(file)
+
+    # Extract data loader and tokenizer configs
+    loader_key = args.loader
+    dataloader_config = config.get(loader_key)
+    tokenizer_config = config.get("tokenizer")
+
+    if not dataloader_config:
+        print(f"Error: No '{loader_key}' section found in config", file=sys.stderr)
+        return 1
+
+    if not tokenizer_config:
+        print("Error: No 'tokenizer' section found in config", file=sys.stderr)
+        return 1
+
+    # Instantiate tokenizer and data loader
+    entities = instantiate(config)
+    tokenizer = entities["tokenizer"]
+    data_loader_fn = entities[loader_key]
+    data_loader = data_loader_fn()
+
+    print("=" * 80)
+    print("DATA LOADER VALIDATION")
+    print("=" * 80)
+    print(f"Config file: {args.config_file}")
+    print(f"Loader: {loader_key}")
+    print(f"Dataset path: {dataloader_config.get('dataset_path')}")
+    print(f"Sequence length: {dataloader_config.get('sequence_length')}")
+    print(f"Batch size: {dataloader_config.get('batch_size')}")
+    print(f"Samples per file: {dataloader_config.get('samples_per_file')}")
+    print(f"Num epochs: {dataloader_config.get('num_epochs')}")
+    print()
+
+    # Track unique examples to detect duplicates
+    seen_examples = set()
+    total_examples = 0
+    duplicate_count = 0
+    total_tokens = 0
+
+    # Inspect batches
+    for batch_idx, (inputs, targets) in enumerate(data_loader):
+        # Convert to numpy for easier inspection
+        inputs_np = inputs.numpy() if hasattr(inputs, "numpy") else inputs
+        targets_np = targets.numpy() if hasattr(targets, "numpy") else targets
+
+        # Count total tokens
+        total_tokens += inputs_np.size
+
+        if args.show_examples > 0:
+            print(f"Batch {batch_idx + 1}")
+            print(f"  Shape: inputs={inputs_np.shape}, targets={targets_np.shape}")
+
+        # Check all examples for duplicates
+        num_examples_to_check = inputs_np.shape[0]
+        num_examples_to_show = min(args.show_examples, inputs_np.shape[0])
+
+        for i in range(num_examples_to_check):
+            input_seq = inputs_np[i]
+            target_seq = targets_np[i]
+
+            # Create a hash of the example
+            example_hash = hash(input_seq.tobytes())
+            total_examples += 1
+
+            if example_hash in seen_examples:
+                duplicate_count += 1
+                if i < num_examples_to_show:
+                    print(f"  Example {i + 1}: ⚠️  DUPLICATE DETECTED")
+            else:
+                seen_examples.add(example_hash)
+
+            # Only show details for the first few examples
+            if i < num_examples_to_show:
+                # Show the example
+                print(f"  Example {i + 1}:")
+
+                # Decode and show first few tokens
+                input_tokens = [tokenizer.vocab[int(idx)] for idx in input_seq[:10]]
+                target_tokens = [tokenizer.vocab[int(idx)] for idx in target_seq[:10]]
+
+                input_text = "".join(
+                    [token.decode("utf-8", errors="replace") for token in input_tokens]
+                )
+                target_text = "".join(
+                    [token.decode("utf-8", errors="replace") for token in target_tokens]
+                )
+
+                print(f"    Input (first 10):  {input_text[:50]!r}")
+                print(f"    Target (first 10): {target_text[:50]!r}")
+
+                # Verify shift property: targets should be inputs shifted by 1
+                if not np.array_equal(input_seq[1:], target_seq[:-1]):
+                    print("    ❌ ERROR: Target is not properly shifted from input!")
+                else:
+                    print("    ✓ Target is correctly shifted from input")
+
+                print()
+
+        if args.show_examples > 0:
+            print()
+
+    # Summary
+    print("=" * 80)
+    print("VALIDATION SUMMARY")
+    print("=" * 80)
+    print(f"Total batches: {batch_idx + 1}")
+    print(f"Total examples inspected: {total_examples}")
+    print(f"Total tokens: {total_tokens:,}")
+    print(f"Unique examples: {len(seen_examples)}")
+    print(f"Duplicate examples: {duplicate_count}")
+
+    if duplicate_count > 0:
+        print(f"⚠️  WARNING: Found {duplicate_count} duplicate examples!")
+        print("   This suggests the data loader may be repeating the same data.")
+    else:
+        print("✓ No duplicates detected in sampled batches")
+
+    if len(seen_examples) == 1:
+        print("❌ CRITICAL: All examples are identical!")
+        print("   Check the data loader implementation for bugs.")
 
     return 0
 
