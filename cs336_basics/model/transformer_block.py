@@ -12,16 +12,19 @@ class TransformerBlock(torch.nn.Module):
         d_model: int,
         num_heads: int,
         d_ff: int,
-        max_seq_len: int,
-        rope_theta: float,
+        rope_config: RopeConfig | None,
+        use_rms_norm: bool = True,
         device: torch.device | None = None,
         dtype: torch.dtype | None = None,
     ) -> None:
         super().__init__()
 
-        self.ln1 = RmsNorm(d_model, device=device, dtype=dtype)
+        if use_rms_norm:
+            self.ln1 = RmsNorm(d_model, device=device, dtype=dtype)
+        else:
+            self.ln1 = None
         self.attn = MultiHeadSelfAttention(
-            d_model, num_heads, RopeConfig(rope_theta, max_seq_len), device=device, dtype=dtype
+            d_model, num_heads, rope_config, device=device, dtype=dtype
         )
 
         self.ln2 = RmsNorm(d_model, device=device, dtype=dtype)
@@ -37,7 +40,10 @@ class TransformerBlock(torch.nn.Module):
         token_positions = torch.arange(0, seq_len).repeat(batches, 1)
 
         # multi-head attention with pre-norm
-        y = x + self.attn(self.ln1(x), token_positions)
+        if self.ln1 is not None:
+            y = x + self.attn(self.ln1(x), token_positions)
+        else:
+            y = x + self.attn(x, token_positions)
 
         # feed-forward with pre-norm
         return y + self.ffn(self.ln2(y))

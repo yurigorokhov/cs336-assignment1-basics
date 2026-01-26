@@ -1,0 +1,17 @@
+command:
+  - uv
+  - run
+  - cs336
+  - train
+  - cs336_basics/experiments/ablation_base.yaml
+method: grid
+metric:
+  name: val/perplexity
+  goal: minimize
+parameters:
+  model.use_rms_norm:
+    values: [True, False]
+
+  # this automatically creates a checkpoint dir based on the wandb run_id
+  checkpoint_dir:
+    value: null
