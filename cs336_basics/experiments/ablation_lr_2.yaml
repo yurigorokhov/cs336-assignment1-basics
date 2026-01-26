@@ -3,16 +3,14 @@ command:
   - run
   - cs336
   - train
-  - cs336_basics/experiments/tiny_stories_ablation.yaml
+  - cs336_basics/experiments/ablation_base.yaml
 method: grid
 metric:
   name: val/perplexity
   goal: minimize
 parameters:
   learning_rate_schedule.max_learning_rate:
-    values: [0.0005, 0.001, 0.0025, 0.005, 0.01]
-  optimizer.betas:
-    values: [[0.9,0.999], [0.9,0.95]]
+    values: [0.002, 0.003, 0.004, 0.005, 0.007, 0.008]
 
   # this automatically creates a checkpoint dir based on the wandb run_id
   checkpoint_dir:

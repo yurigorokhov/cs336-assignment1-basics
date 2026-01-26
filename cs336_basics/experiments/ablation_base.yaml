@@ -19,6 +19,7 @@ model:
   num_heads: 16
   d_ff: 1344
   rope_theta: 10000
+  use_rms_norm: True
   device:
     __target__: 'torch.device'
     device: 'mps:0'
